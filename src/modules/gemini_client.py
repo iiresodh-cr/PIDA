@@ -2,7 +2,7 @@
 
 import vertexai
 from vertexai.generative_models import GenerativeModel, Content, Part, GenerationConfig
-from typing import List
+from typing import List, AsyncGenerator
 from src.config import settings, log
 from src.models.chat_models import ChatMessage
 
@@ -10,14 +10,12 @@ from src.models.chat_models import ChatMessage
 try:
     vertexai.init(project=settings.GOOGLE_CLOUD_PROJECT, location=settings.GOOGLE_CLOUD_LOCATION)
 
-    # Configuración de generación
     generation_config = GenerationConfig(
         max_output_tokens=settings.MAX_OUTPUT_TOKENS,
         temperature=settings.TEMPERATURE,
         top_p=settings.TOP_P,
     )
 
-    # Carga del modelo
     model = GenerativeModel(settings.GEMINI_MODEL)
     log.info(f"Cliente de Vertex AI inicializado y modelo '{settings.GEMINI_MODEL}' cargado.")
 
@@ -35,7 +33,7 @@ def prepare_history_for_vertex(history: List[ChatMessage]) -> List[Content]:
         vertex_history.append(Content(role=role, parts=[Part.from_text(message.content)]))
     return vertex_history
 
-async def generate_streaming_response(system_prompt: str, prompt: str, history: List[Content]):
+async def generate_streaming_response(system_prompt: str, prompt: str, history: List[Content]) -> AsyncGenerator[str, None]:
     """
     Genera una respuesta del modelo Gemini en modo streaming.
     Retorna un generador asíncrono que produce trozos (chunks) de texto.
@@ -46,17 +44,16 @@ async def generate_streaming_response(system_prompt: str, prompt: str, history: 
         return
 
     try:
-        # Crea la sesión de chat con el historial y el system prompt
         chat = model.start_chat(history=history)
-        
-        # El system prompt se concatena al inicio del primer prompt del usuario
         full_prompt = f"{system_prompt}\n\n---\n\n{prompt}"
         
-        # Envía el prompt y obtiene un stream de respuestas
+        # El método send_message con stream=True devuelve un generador SÍNCRONO.
         response_stream = chat.send_message(full_prompt, stream=True, generation_config=generation_config)
 
-        # Itera sobre el stream y produce cada trozo de texto
-        async for chunk in response_stream:
+        # --- CORRECCIÓN CLAVE ---
+        # Se cambia 'async for' por un 'for' síncrono normal para iterar sobre el generador.
+        # Esto es correcto porque la librería maneja el I/O en segundo plano.
+        for chunk in response_stream:
             if chunk.text:
                 yield chunk.text
 
