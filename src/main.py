@@ -32,41 +32,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- LÓGICA DE STREAMING MEJORADA (GENERADOR SSE) ---
+# --- LÓGICA DE STREAMING RE-ARQUITECTADA (GENERADOR SSE) ---
 async def stream_chat_response_generator(chat_request: ChatRequest, country_code: str | None):
     """
-    Generador mejorado que envía actualizaciones de estado al cliente
-    mientras busca contexto, y luego transmite la respuesta del AI.
+    Generador que orquesta la búsqueda de contexto de forma no bloqueante y
+    realiza el streaming de la respuesta del AI, enviando actualizaciones de estado.
     """
+    
+    # Función auxiliar para crear eventos SSE
+    def create_sse_event(data: dict) -> str:
+        return f"data: {json.dumps(data)}\n\n"
+
     try:
-        # --- FUNCIÓN AUXILIAR PARA ENVIAR EVENTOS SSE ---
-        def create_sse_event(data: dict) -> str:
-            return f"data: {json.dumps(data)}\n\n"
+        # 1. Notificar al cliente que el proceso ha comenzado
+        yield create_sse_event({"event": "status", "message": "Iniciando búsqueda de fuentes..."})
+        log.info(f"Iniciando búsqueda de fuentes (PSE y RAG) para prompt: '{chat_request.prompt[:50]}...'")
 
-        # 1. Notificar al cliente que la búsqueda ha comenzado
-        yield create_sse_event({"event": "status", "message": "Buscando en documentos y fuentes externas..."})
-        log.info(f"Iniciando búsqueda de fuentes (PSE y RAG). País: {country_code or 'No especificado'}")
-
-        # 2. Realizar las búsquedas de contexto en paralelo
+        # 2. Preparar las tareas de búsqueda
         search_tasks = [
             pse_client.search_for_sources(chat_request.prompt, num_results=3),
             rag_client.search_internal_documents(chat_request.prompt)
         ]
-        results = await asyncio.gather(*search_tasks)
-        pse_context, rag_context = results[0], results[1]
-
-        # 3. Notificar al cliente que se está generando la respuesta
+        
+        # 3. Procesar tareas a medida que se completan (NO BLOQUEANTE)
+        combined_context = ""
+        # asyncio.as_completed devuelve las tareas en el orden en que terminan
+        for task in asyncio.as_completed(search_tasks):
+            try:
+                result = await task
+                combined_context += result
+                log.info("Una fuente de contexto ha sido procesada exitosamente.")
+                # Notificar al cliente sobre el progreso
+                yield create_sse_event({"event": "status", "message": "Contexto encontrado. Procesando..."})
+            except Exception as e:
+                log.error(f"Una tarea de búsqueda falló: {e}", exc_info=True)
+                # Opcional: notificar al cliente sobre el fallo de una fuente
+                yield create_sse_event({"event": "status", "message": "Error al buscar en una de las fuentes."})
+        
+        # 4. Construir el prompt final y notificar al cliente
+        log.info("Todas las búsquedas de contexto han finalizado.")
         yield create_sse_event({"event": "status", "message": "Generando análisis jurídico..."})
-        log.info("Contexto recolectado. Construyendo prompt final para Gemini...")
 
-        combined_context = f"{pse_context}{rag_context}"
         final_prompt = f"Contexto geográfico: {country_code}\n{combined_context}\n\n---\n\nPregunta del usuario: {chat_request.prompt}"
-
         history_for_gemini = gemini_client.prepare_history_for_vertex(chat_request.history)
 
-        log.info("Enviando a Gemini para iniciar streaming...")
-
-        # 4. Iniciar el streaming de la respuesta de Gemini
+        log.info("Prompt final construido. Enviando a Gemini para iniciar streaming...")
+        
+        # 5. Iniciar el streaming de la respuesta de Gemini
         async for chunk in gemini_client.generate_streaming_response(
             system_prompt=PIDA_SYSTEM_PROMPT,
             prompt=final_prompt,
@@ -74,7 +86,7 @@ async def stream_chat_response_generator(chat_request: ChatRequest, country_code
         ):
             yield create_sse_event({'text': chunk})
 
-        # 5. Enviar el evento de finalización
+        # 6. Finalizar el stream
         log.info("Streaming finalizado exitosamente. Enviando evento 'done'.")
         yield create_sse_event({'event': 'done'})
 
@@ -102,7 +114,7 @@ async def chat_stream_handler(chat_request: ChatRequest, request: Request):
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
-        "X-Accel-Buffering": "no" # ¡Muy importante para evitar buffering de proxy!
+        "X-Accel-Buffering": "no" # ¡Crucial para evitar buffering de proxies!
     }
     
     return StreamingResponse(
