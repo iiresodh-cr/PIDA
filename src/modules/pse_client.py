@@ -7,34 +7,45 @@ from pypdf import PdfReader
 from src.config import settings, log
 
 FETCH_ERROR_MESSAGE = "No se pudo extraer contenido de esta fuente."
+MAX_PDF_PAGES_TO_READ = 10 # <-- NUEVA CONSTANTE DE OPTIMIZACIÓN
 
 async def _fetch_and_parse_url(url: str, client: httpx.AsyncClient) -> str:
     """
     Función auxiliar para descargar y extraer el texto de una URL,
-    ahora compatible con HTML y PDF.
+    optimizada para leer solo las primeras páginas de un PDF.
     """
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = await client.get(url, headers=headers, timeout=15.0, follow_redirects=True)
+        # Aumentamos el timeout general por si la descarga inicial es lenta
+        response = await client.get(url, headers=headers, timeout=20.0, follow_redirects=True)
         response.raise_for_status()
         
         content_type = response.headers.get("content-type", "").lower()
 
-        # Opción 1: El contenido es un PDF
+        # Opción 1: El contenido es un PDF (LÓGICA OPTIMIZADA)
         if "application/pdf" in content_type:
-            log.info(f"Detectado PDF en la URL: {url}. Extrayendo texto...")
+            log.info(f"Detectado PDF en la URL: {url}. Extrayendo texto de las primeras {MAX_PDF_PAGES_TO_READ} páginas...")
             pdf_bytes = io.BytesIO(response.content)
             reader = PdfReader(pdf_bytes)
-            text_content = "".join(page.extract_text() for page in reader.pages if page.extract_text())
-            return text_content.replace("\n", " ").strip()[:5000]
+            
+            text_content = ""
+            # Leemos solo hasta un máximo de páginas para evitar la lentitud
+            for i, page in enumerate(reader.pages):
+                if i >= MAX_PDF_PAGES_TO_READ:
+                    log.info(f"Límite de {MAX_PDF_PAGES_TO_READ} páginas alcanzado para {url}. Deteniendo lectura.")
+                    break
+                if page.extract_text():
+                    text_content += page.extract_text()
 
-        # Opción 2: El contenido es HTML (lógica original)
+            return text_content.replace("\\n", " ").replace("\n", " ").strip()[:7000]
+
+        # Opción 2: El contenido es HTML
         elif "text/html" in content_type:
             log.info(f"Detectado HTML en la URL: {url}. Extrayendo texto...")
             soup = BeautifulSoup(response.text, 'lxml')
             paragraphs = [p.get_text() for p in soup.find_all('p')]
-            content = " ".join(paragraphs).replace("\n", " ").strip()
-            return content[:5000] if content else FETCH_ERROR_MESSAGE
+            content = " ".join(paragraphs).replace("\\n", " ").replace("\n", " ").strip()
+            return content[:7000] if content else FETCH_ERROR_MESSAGE
 
         # Opción 3: Contenido no soportado
         else:
@@ -45,7 +56,7 @@ async def _fetch_and_parse_url(url: str, client: httpx.AsyncClient) -> str:
         log.warning(f"No se pudo obtener el contenido de la URL {url}: {e}")
         return FETCH_ERROR_MESSAGE
 
-async def search_for_sources(query: str, num_results: int = 5) -> str:
+async def search_for_sources(query: str, num_results: int = 3) -> str:
     """
     Realiza una búsqueda en el PSE y extrae el contenido de las páginas.
     """
@@ -61,7 +72,7 @@ async def search_for_sources(query: str, num_results: int = 5) -> str:
             if "items" not in results or not results["items"]:
                 return "No se encontraron resultados de búsqueda externos."
 
-            formatted_results = "\n\n### Contexto de Búsqueda Externa:\n"
+            formatted_results = "\\n\\n### Contexto de Búsqueda Externa:\\n"
             for item in results["items"]:
                 title = item.get("title", "Sin Título")
                 link = item.get("link", "#")
@@ -71,8 +82,8 @@ async def search_for_sources(query: str, num_results: int = 5) -> str:
                 
                 final_content = page_content if page_content != FETCH_ERROR_MESSAGE else snippet
                 
-                formatted_results += f"Título: **[{title}]({link})**\n"
-                formatted_results += f"Contenido de la Página: {final_content}\n\n"
+                formatted_results += f"Título: **[{title}]({link})**\\n"
+                formatted_results += f"Contenido de la Página: {final_content}\\n\\n"
             
             return formatted_results
 
