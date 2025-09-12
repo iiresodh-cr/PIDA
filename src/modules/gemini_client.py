@@ -1,6 +1,7 @@
 # src/modules/gemini_client.py
 
 import vertexai
+import asyncio # <--- IMPORTANTE: Asegúrate de que asyncio está importado
 from vertexai.generative_models import GenerativeModel, Content, Part, GenerationConfig
 from typing import List, AsyncGenerator
 from src.config import settings, log
@@ -35,8 +36,8 @@ def prepare_history_for_vertex(history: List[ChatMessage]) -> List[Content]:
 
 async def generate_streaming_response(system_prompt: str, prompt: str, history: List[Content]) -> AsyncGenerator[str, None]:
     """
-    Genera una respuesta del modelo Gemini en modo streaming.
-    Retorna un generador asíncrono que produce trozos (chunks) de texto.
+    Genera una respuesta del modelo Gemini en modo streaming, asegurando que no se
+    bloquee el event loop de asyncio.
     """
     if not model:
         log.error("El modelo Gemini no está disponible.")
@@ -47,15 +48,16 @@ async def generate_streaming_response(system_prompt: str, prompt: str, history: 
         chat = model.start_chat(history=history)
         full_prompt = f"{system_prompt}\n\n---\n\n{prompt}"
         
-        # El método send_message con stream=True devuelve un generador SÍNCRONO.
         response_stream = chat.send_message(full_prompt, stream=True, generation_config=generation_config)
 
-        # --- CORRECCIÓN CLAVE ---
-        # Se cambia 'async for' por un 'for' síncrono normal para iterar sobre el generador.
-        # Esto es correcto porque la librería maneja el I/O en segundo plano.
+        # Iteramos sobre el generador síncrono
         for chunk in response_stream:
             if chunk.text:
                 yield chunk.text
+                # --- LA LÍNEA CLAVE DE LA SOLUCIÓN ---
+                # Cedemos el control al event loop para que pueda enviar el chunk
+                # antes de procesar el siguiente.
+                await asyncio.sleep(0)
 
     except Exception as e:
         log.error(f"Error al generar la respuesta en streaming desde Gemini: {e}", exc_info=True)
