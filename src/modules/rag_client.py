@@ -32,22 +32,21 @@ async def search_internal_documents(query: str) -> str:
             # Formateamos los resultados para inyectarlos en el prompt
             formatted_results = "\n\n### Contexto de Documentos Internos (RAG):\n"
             for doc in data.get("results", []):
-                # 1. Extraer los datos crudos de la respuesta de la API
                 title = doc.get("title")
                 author = doc.get("author")
                 source_filename = doc.get("source")
                 content = doc.get("content", "").replace("\n", " ").strip()
 
-                # 2. Decidir qué título mostrar (con un orden de prioridad)
-                #    Primero intenta usar el título de los metadatos. Si no existe, usa el nombre del archivo.
+                # Decidir qué título mostrar, dando prioridad al de la metadata
                 display_title = title or source_filename or "Documento Interno"
 
-                # 3. Construir la línea de la fuente según las reglas del prompt
-                citation_line = f"**Fuente:** **{display_title}**"
-                if author and author != "Autor Desconocido":
+                # Construir la cita EXACTAMENTE como lo pide prompts.py
+                # Formato: Fuente: <Título>, Autor
+                citation_line = f"**Fuente:** **<{display_title}>**"
+                if author and author.strip() and author != "Autor Desconocido":
                     citation_line += f", {author}"
 
-                # 4. Ensamblar la salida final con el formato correcto
+                # Ensamblar la salida final, asegurando que "Texto:" esté en una nueva línea
                 formatted_results += f"{citation_line}\n"
                 formatted_results += f"**Texto:**\n> {content}\n\n"
             
