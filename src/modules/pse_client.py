@@ -1,24 +1,46 @@
 # src/modules/pse_client.py
 
 import httpx
+import io
 from bs4 import BeautifulSoup
+from pypdf import PdfReader
 from src.config import settings, log
 
 FETCH_ERROR_MESSAGE = "No se pudo extraer contenido de esta fuente."
 
 async def _fetch_and_parse_url(url: str, client: httpx.AsyncClient) -> str:
-    """Función auxiliar para descargar y extraer el texto de una URL."""
+    """
+    Función auxiliar para descargar y extraer el texto de una URL,
+    ahora compatible con HTML y PDF.
+    """
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = await client.get(url, headers=headers, timeout=10.0, follow_redirects=True)
+        response = await client.get(url, headers=headers, timeout=15.0, follow_redirects=True)
         response.raise_for_status()
         
-        soup = BeautifulSoup(response.text, 'lxml')
-        
-        paragraphs = [p.get_text() for p in soup.find_all('p')]
-        content = " ".join(paragraphs).replace("\n", " ").strip()
-        
-        return content[:5000] if content else FETCH_ERROR_MESSAGE
+        content_type = response.headers.get("content-type", "").lower()
+
+        # Opción 1: El contenido es un PDF
+        if "application/pdf" in content_type:
+            log.info(f"Detectado PDF en la URL: {url}. Extrayendo texto...")
+            pdf_bytes = io.BytesIO(response.content)
+            reader = PdfReader(pdf_bytes)
+            text_content = "".join(page.extract_text() for page in reader.pages if page.extract_text())
+            return text_content.replace("\n", " ").strip()[:5000]
+
+        # Opción 2: El contenido es HTML (lógica original)
+        elif "text/html" in content_type:
+            log.info(f"Detectado HTML en la URL: {url}. Extrayendo texto...")
+            soup = BeautifulSoup(response.text, 'lxml')
+            paragraphs = [p.get_text() for p in soup.find_all('p')]
+            content = " ".join(paragraphs).replace("\n", " ").strip()
+            return content[:5000] if content else FETCH_ERROR_MESSAGE
+
+        # Opción 3: Contenido no soportado
+        else:
+            log.warning(f"Contenido no soportado en la URL {url} (Content-Type: {content_type})")
+            return FETCH_ERROR_MESSAGE
+
     except Exception as e:
         log.warning(f"No se pudo obtener el contenido de la URL {url}: {e}")
         return FETCH_ERROR_MESSAGE
