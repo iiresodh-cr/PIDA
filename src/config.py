@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     # Variables del Modelo Gemini
     GEMINI_MODEL: str
     MAX_OUTPUT_TOKENS: int = 16384
-    TEMPERATURE: float = 0.5
+    TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
 
     # Variables para el PSE
