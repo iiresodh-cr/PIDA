@@ -32,16 +32,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# --- LÓGICA DE STREAMING (GENERADOR SSE) ---
+# --- LÓGICA DE STREAMING MEJORADA (GENERADOR SSE) ---
 async def stream_chat_response_generator(chat_request: ChatRequest, country_code: str | None):
     """
-    Generador que orquesta la búsqueda de contexto y el streaming de la respuesta del AI.
-    Produce eventos en formato Server-Sent Events (SSE).
+    Generador mejorado que envía actualizaciones de estado al cliente
+    mientras busca contexto, y luego transmite la respuesta del AI.
     """
     try:
+        # --- FUNCIÓN AUXILIAR PARA ENVIAR EVENTOS SSE ---
+        def create_sse_event(data: dict) -> str:
+            return f"data: {json.dumps(data)}\n\n"
+
+        # 1. Notificar al cliente que la búsqueda ha comenzado
+        yield create_sse_event({"event": "status", "message": "Buscando en documentos y fuentes externas..."})
         log.info(f"Iniciando búsqueda de fuentes (PSE y RAG). País: {country_code or 'No especificado'}")
-        
+
+        # 2. Realizar las búsquedas de contexto en paralelo
         search_tasks = [
             pse_client.search_for_sources(chat_request.prompt, num_results=3),
             rag_client.search_internal_documents(chat_request.prompt)
@@ -49,22 +55,28 @@ async def stream_chat_response_generator(chat_request: ChatRequest, country_code
         results = await asyncio.gather(*search_tasks)
         pse_context, rag_context = results[0], results[1]
 
+        # 3. Notificar al cliente que se está generando la respuesta
+        yield create_sse_event({"event": "status", "message": "Generando análisis jurídico..."})
+        log.info("Contexto recolectado. Construyendo prompt final para Gemini...")
+
         combined_context = f"{pse_context}{rag_context}"
         final_prompt = f"Contexto geográfico: {country_code}\n{combined_context}\n\n---\n\nPregunta del usuario: {chat_request.prompt}"
 
         history_for_gemini = gemini_client.prepare_history_for_vertex(chat_request.history)
 
-        log.info("Prompt final construido. Enviando a Gemini para iniciar streaming...")
-        
+        log.info("Enviando a Gemini para iniciar streaming...")
+
+        # 4. Iniciar el streaming de la respuesta de Gemini
         async for chunk in gemini_client.generate_streaming_response(
             system_prompt=PIDA_SYSTEM_PROMPT,
             prompt=final_prompt,
             history=history_for_gemini
         ):
-            yield f"data: {json.dumps({'text': chunk})}\n\n"
+            yield create_sse_event({'text': chunk})
 
+        # 5. Enviar el evento de finalización
         log.info("Streaming finalizado exitosamente. Enviando evento 'done'.")
-        yield f"data: {json.dumps({'event': 'done'})}\n\n"
+        yield create_sse_event({'event': 'done'})
 
     except Exception as e:
         log.error(f"Error crítico durante el proceso de streaming: {e}", exc_info=True)
@@ -86,13 +98,11 @@ async def chat_stream_handler(chat_request: ChatRequest, request: Request):
     """
     country_code = request.headers.get('X-Country-Code', None)
     
-    # --- CORRECCIÓN CLAVE ---
-    # Se añaden las cabeceras para desactivar el buffering del proxy.
     headers = {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         "Connection": "keep-alive",
-        "X-Accel-Buffering": "no" # ¡Esta es la línea más importante!
+        "X-Accel-Buffering": "no" # ¡Muy importante para evitar buffering de proxy!
     }
     
     return StreamingResponse(
