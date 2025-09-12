@@ -31,25 +31,27 @@ async def search_internal_documents(query: str) -> str:
 
             # Formateamos los resultados para inyectarlos en el prompt
             formatted_results = "\n\n### Contexto de Documentos Internos (RAG):\n"
-            for doc in data.get("results", []):
+            for i, doc in enumerate(data.get("results", [])):
+                # PASO 1: Extraer los datos de forma segura
                 title = doc.get("title")
                 author = doc.get("author")
                 source_filename = doc.get("source")
                 content = doc.get("content", "").replace("\n", " ").strip()
 
-                # Decidir qué título mostrar, dando prioridad al de la metadata
+                # PASO 2: Decidir el título a mostrar, con fallbacks
                 display_title = title or source_filename or "Documento Interno"
 
-                # Construir la cita EXACTAMENTE como lo pide prompts.py
-                # Formato: Fuente: <Título>, Autor
+                # PASO 3: Construir la línea de la cita según las reglas del prompt
                 citation_line = f"**Fuente:** **<{display_title}>**"
                 if author and author.strip() and author != "Autor Desconocido":
                     citation_line += f", {author}"
+                
+                # PASO DE DEPURACIÓN
+                log.info(f"DEBUG RAG Doc {i}: title='{title}', author='{author}', citation_line='{citation_line}'")
 
-                # Ensamblar la salida final, asegurando que "Texto:" esté en una nueva línea
+                # PASO 4: Ensamblar la salida con el formato correcto
                 formatted_results += f"{citation_line}\n"
                 formatted_results += f"**Texto:**\n> {content}\n\n"
-            
             
             return formatted_results
 
