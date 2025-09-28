@@ -8,12 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from src.config import settings, log
 from src.models.chat_models import ChatRequest
+# Asegúrate de que firestore_client esté importado
 from src.modules import pse_client, gemini_client, rag_client, firestore_client
 from src.core.prompts import PIDA_SYSTEM_PROMPT
 
 app = FastAPI(
     title="PIDA Backend API con Firestore",
-    description="API para el asistente jurídico PIDA, con persistencia en Firestore."
+    description="API para el asistente jurídico PIDA, con persistencia en Firestore y endpoints completos."
 )
 
 # --- CONFIGURACIÓN DE CORS ---
@@ -53,12 +54,13 @@ async def stream_chat_response_generator(chat_request: ChatRequest, country_code
             content=chat_request.prompt
         )
 
-        # 3. ACTUALIZAR TÍTULO SI ES LA PRIMERA PREGUNTA
+        # 3. ACTUALIZAR TÍTULO SI ES LA PRIMERA PREGUNTA DE UN NUEVO CHAT
         if conversation.get('title') == 'Nuevo Chat':
-            new_title = chat_request.prompt.split(' ')[0:5]
-            new_title = ' '.join(new_title) + '...'
+            # Genera un título corto a partir de las primeras palabras del prompt
+            new_title = ' '.join(chat_request.prompt.split(' ')[0:5])
+            if len(chat_request.prompt.split(' ')) > 5:
+                new_title += '...'
             await firestore_client.update_conversation_title(chat_request.user_id, current_convo_id, new_title)
-
 
         # 4. BÚSQUEDA DE FUENTES (sin cambios)
         yield create_sse_event({"event": "status", "message": "Iniciando búsqueda de fuentes..."})
@@ -73,12 +75,11 @@ async def stream_chat_response_generator(chat_request: ChatRequest, country_code
             combined_context += result
             yield create_sse_event({"event": "status", "message": "Contexto encontrado. Procesando..."})
 
-        # 5. OBTENER HISTORIAL DESDE FIRESTORE
+        # 5. OBTENER HISTORIAL DESDE FIRESTORE PARA ENVIAR A GEMINI
         history_from_db = await firestore_client.get_conversation_history(chat_request.user_id, current_convo_id)
         
-        # Preparamos el historial para Gemini (quitando el último mensaje del usuario, que ya está en el prompt)
-        history_for_gemini_pydantic = [msg for msg in history_from_db if not (msg['role'] == 'user' and msg['content'] == chat_request.prompt)]
-
+        # Quitamos el último mensaje (el que acaba de enviar el usuario) para no duplicarlo
+        history_for_gemini_pydantic = history_from_db[:-1]
 
         final_prompt = f"Contexto geográfico: {country_code}\n{combined_context}\n\n---\n\nPregunta del usuario: {chat_request.prompt}"
         history_for_vertex = gemini_client.prepare_history_for_vertex(history_for_gemini_pydantic)
@@ -118,7 +119,7 @@ async def stream_chat_response_generator(chat_request: ChatRequest, country_code
 def read_status():
     return {"status": "ok", "message": "PIDA Backend con Firestore funcionando."}
 
-# NUEVO ENDPOINT para obtener el historial de chats
+# ENDPOINT para obtener la lista de conversaciones
 @app.get("/conversations/{user_id}", tags=["Conversations"])
 async def get_conversations(user_id: str):
     """Obtiene la lista de todas las conversaciones para un usuario específico."""
@@ -128,6 +129,17 @@ async def get_conversations(user_id: str):
     except Exception as e:
         log.error(f"Error al obtener conversaciones para el usuario {user_id}: {e}")
         raise HTTPException(status_code=500, detail="No se pudieron obtener las conversaciones.")
+
+# NUEVO ENDPOINT para obtener los mensajes de un chat específico
+@app.get("/conversations/{user_id}/{conversation_id}", tags=["Conversations"])
+async def get_conversation_messages(user_id: str, conversation_id: str):
+    """Obtiene todos los mensajes de una conversación específica."""
+    try:
+        messages = await firestore_client.get_conversation_history(user_id, conversation_id)
+        return messages
+    except Exception as e:
+        log.error(f"Error al obtener mensajes para la conversación {conversation_id}: {e}")
+        raise HTTPException(status_code=500, detail="No se pudieron obtener los mensajes.")
 
 # ENDPOINT PRINCIPAL MODIFICADO
 @app.post("/chat-stream", tags=["Chat"])
