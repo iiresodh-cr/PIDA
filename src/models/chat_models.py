@@ -11,4 +11,4 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     """El cuerpo de la petición para el endpoint /chat."""
     prompt: str
-    history: List[ChatMessage] = [] # Por defecto, una lista vacía para retrocompatibilidad
+    history: List[ChatMessage] = [] # Por defecto, una lista vacía para retrocompatibilidad (prueba)
