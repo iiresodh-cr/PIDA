@@ -135,6 +135,20 @@ async def delete_a_conversation(convo_id: str, user_id: str = Depends(get_curren
     await firestore_client.delete_conversation(user_id, convo_id)
     return
 
+@app.patch("/conversations/{convo_id}/title", status_code=status.HTTP_204_NO_CONTENT, tags=["Chat History"])
+async def update_conversation_title_handler(
+    convo_id: str, 
+    request: Request,
+    user_id: str = Depends(get_current_user_id)
+):
+    """Actualiza el título de una conversación."""
+    body = await request.json()
+    new_title = body.get("title")
+    if not new_title:
+        raise HTTPException(status_code=400, detail="El título no puede estar vacío")
+    await firestore_client.update_conversation_title(user_id, convo_id, new_title)
+    return
+
 # --- ENDPOINT DE CHAT MODIFICADO ---
 
 @app.post("/chat-stream/{convo_id}", tags=["Chat"])
