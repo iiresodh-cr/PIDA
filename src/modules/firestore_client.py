@@ -73,3 +73,12 @@ async def delete_conversation(user_id: str, convo_id: str):
         log.info(f"Conversación {convo_id} del usuario {user_id} eliminada correctamente.")
     except Exception as e:
         log.error(f"Error al eliminar la conversación {convo_id} del usuario {user_id}: {e}")
+
+async def update_conversation_title(user_id: str, convo_id: str, new_title: str):
+    """Actualiza el título de una conversación específica."""
+    try:
+        convo_ref = db.collection('users').document(user_id).collection('conversations').document(convo_id)
+        await convo_ref.update({"title": new_title})
+        log.info(f"Título de la conversación {convo_id} actualizado a '{new_title}'.")
+    except Exception as e:
+        log.error(f"Error al actualizar el título de la convo {convo_id}: {e}")
