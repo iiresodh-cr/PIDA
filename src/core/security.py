@@ -15,28 +15,29 @@ credentials_exception = HTTPException(
 
 async def get_current_user_id(token: str = Depends(oauth2_scheme)) -> str:
     """
-    Decodifica el token JWT para obtener el ID del usuario.
-    MODIFICADO para ser compatible con "Simple JWT Login" y el plugin anterior.
+    Decodifica el token JWT para obtener el ID del usuario usando
+    autenticación asimétrica (RS256) con una clave pública.
     """
     try:
+        # --- INICIO DE LA MODIFICACIÓN PARA RS256 ---
+        # Lee la clave pública y el algoritmo desde la configuración.
+        public_key = settings.JWT_PUBLIC_KEY
+        algorithm = settings.JWT_ALGORITHM
+
         payload = jwt.decode(
             token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM]
+            public_key,
+            algorithms=[algorithm] # Debe ser RS256
         )
-
-        # --- INICIO DE LA MODIFICACIÓN ---
-        # Intenta buscar el ID del usuario en varios lugares comunes del payload
-        # para dar compatibilidad con diferentes plugins de JWT.
-        user_id = payload.get("id") or \
-                  payload.get("user_id") or \
-                  payload.get("data", {}).get("user", {}).get("id")
-
+        
+        # El ID del usuario está en el campo "id" del payload que creamos en WordPress.
+        user_id = payload.get("id")
+        
         if user_id is None:
-            log.warning(f"Token JWT válido, pero no contiene el ID de usuario en las rutas esperadas. Payload: {payload}")
+            log.warning("Token JWT válido, pero no contiene el ID de usuario.")
             raise credentials_exception
         # --- FIN DE LA MODIFICACIÓN ---
-
+            
         return str(user_id)
 
     except JWTError as e:
