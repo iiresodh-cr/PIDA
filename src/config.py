@@ -25,9 +25,9 @@ class Settings(BaseSettings):
     # Variables para el PSE
     PSE_API_KEY: str
     PSE_ID: str
-    
-    # --- NUEVAS VARIABLES PARA AUTENTICACIÓN JWT ---
-    JWT_SECRET_KEY: str #
+
+    # --- VARIABLES PARA AUTENTICACIÓN JWT (ORIGINAL) ---
+    JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
 
 settings = Settings()
