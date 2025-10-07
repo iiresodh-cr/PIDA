@@ -26,12 +26,9 @@ class Settings(BaseSettings):
     PSE_API_KEY: str
     PSE_ID: str
     
-    # --- INICIO DE LA MODIFICACIÓN PARA RS256 ---
-    # La clave pública para verificar los tokens. Se pasa como variable de entorno.
-    JWT_PUBLIC_KEY: str 
-    # El algoritmo de firma asimétrica.
-    JWT_ALGORITHM: str = "RS256"
-    # --- FIN DE LA MODIFICACIÓN ---
+    # --- NUEVAS VARIABLES PARA AUTENTICACIÓN JWT ---
+    JWT_SECRET_KEY: str #
+    JWT_ALGORITHM: str = "HS256"
 
 settings = Settings()
 
