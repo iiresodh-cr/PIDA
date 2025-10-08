@@ -18,10 +18,6 @@ class Settings(BaseSettings):
     PSE_API_KEY: str
     PSE_ID: str
 
-    # --- Variables de Autenticación JWT ---
-    JWT_SECRET_KEY: str
-    JWT_ALGORITHM: str = "HS256"
-
     # --- VARIABLES AÑADIDAS QUE FALTABAN ---
     MAX_OUTPUT_TOKENS: int = 16384
     TEMPERATURE: float = 0.7
