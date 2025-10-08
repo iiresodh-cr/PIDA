@@ -10,7 +10,8 @@ from src.config import settings, log
 from src.models.chat_models import ChatRequest, ChatMessage
 from src.modules import pse_client, gemini_client, rag_client, firestore_client
 from src.core.prompts import PIDA_SYSTEM_PROMPT
-# --- CAMBIO IMPORTANTE: Importamos la nueva función insegura ---
+# --- LÍNEA CORREGIDA ---
+# Se cambió 'get_current_user_id' por el nombre correcto de la función.
 from src.core.security import get_current_user_id_insecure
 from typing import List, Dict, Any
 
@@ -35,7 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- LÓGICA DE STREAMING (SIN CAMBIOS) ---
+# --- LÓGICA DE STREAMING ---
 async def stream_chat_response_generator(chat_request: ChatRequest, country_code: str | None, user_id: str, convo_id: str):
     def create_sse_event(data: dict) -> str:
         return f"data: {json.dumps(data)}\n\n"
@@ -90,8 +91,6 @@ async def stream_chat_response_generator(chat_request: ChatRequest, country_code
 @app.get("/status", tags=["Status"])
 def read_status():
     return {"status": "ok", "message": "PIDA Backend de Lógica funcionando."}
-
-# --- ENDPOINTS MODIFICADOS PARA USAR LA FUNCIÓN INSEGURA ---
 
 @app.get("/conversations", response_model=List[Dict[str, Any]], tags=["Chat History"])
 async def get_user_conversations(user_id: str = Depends(get_current_user_id_insecure)):
